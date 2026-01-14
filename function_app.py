@@ -22,14 +22,14 @@ plt.switch_backend('Agg')
 
 app = func.FunctionApp()
 
-# --- POPRAWIONA KONFIGURACJA KONTENERÓW ---
-DB_CONTAINER = "database"       # Tu leży baza danych
-REPORTS_CONTAINER = "reports"   # Tu zapisujemy wykresy
+# Kontenery
+DB_CONTAINER = "database"       # baza danych
+REPORTS_CONTAINER = "reports"   # wykresy
 TEMP_DIR = tempfile.gettempdir()
 TEMP_DB_PATH = os.path.join(TEMP_DIR, "szpital.db")
 fake = Faker('pl_PL')
 
-# Konfiguracja mailowa
+# Mail
 EMAIL_CONFIG = {
     "SENDER": os.environ.get("EMAIL_SENDER", ""),
     "PASSWORD": os.environ.get("EMAIL_PASSWORD", ""),
@@ -46,7 +46,7 @@ def is_email_configured():
         EMAIL_CONFIG["RECEIVER"]
     ])
 
-# --- SCHEMAT BAZY ---
+# Schemat bazy
 SQL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS "patients" ( "id" INTEGER PRIMARY KEY AUTOINCREMENT, "first_name" TEXT, "last_name" TEXT, "pesel" TEXT NOT NULL UNIQUE, "birth_date" DATE NOT NULL, "sex" TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS "wards"( "id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" TEXT NOT NULL);
@@ -71,7 +71,7 @@ ICD10_CODES = {
     'SOR': ['R07', 'R10', 'S00', 'T14', 'R55']
 }
 
-# --- FUNKCJE POMOCNICZE ---
+# Funkcje pomocnicze
 def generate_pesel(birth_date, sex):
     year, month, day = birth_date.year, birth_date.month, birth_date.day
     if 1800 <= year < 1900: month += 80
@@ -131,10 +131,10 @@ def symuluj_dzien_szpitala(conn, simulation_date):
             cursor.execute("INSERT INTO hospitalizations (patient_id, admission_date, mode_admission, icd10, ward_id) VALUES (?, ?, 'SOR', ?, ?)", (pid, sim_date_str, random.choice(ICD10_CODES[w_name]), wid))
     conn.commit()
 
-# --- TRIGGER 1: GENERATOR ---
+# Generator danych
 @app.schedule(schedule="0 0 2 * * *", arg_name="myTimer", run_on_startup=False, use_monitor=False) 
 def DailyGenerator(myTimer: func.TimerRequest) -> None:
-    logging.info('--- START: Generator ---')
+    logging.info('START: Generator')
     try:
         connect_str = os.environ["AzureWebJobsStorage"]
         blob_service_client = BlobServiceClient.from_connection_string(connect_str)
@@ -177,7 +177,7 @@ def DailyGenerator(myTimer: func.TimerRequest) -> None:
             logging.info("[UPLOAD] Zaczynam wrzucanie bazy do Azure...")
             with open(TEMP_DB_PATH, "rb") as data:
                 blob_client.upload_blob(data, overwrite=True)
-            logging.info("--- ✅ SUKCES GENERATORA: Baza zapisana w kontenerze 'database' ---")
+            logging.info("Baza zapisana w kontenerze 'database'")
         except Exception as e:
             logging.error(f"[UPLOAD ERROR] Błąd przy zapisie bazy do Azure: {e}", exc_info=True)
             raise
@@ -185,10 +185,10 @@ def DailyGenerator(myTimer: func.TimerRequest) -> None:
         logging.error(f"Błąd w DailyGenerator: {e}")
         raise
 
-# --- TRIGGER 2: ANALIZA ---
+# Analiza danych
 @app.schedule(schedule="0 0 4 * * *", arg_name="myTimer", run_on_startup=True, use_monitor=False)
 def DailyAnalysis(myTimer: func.TimerRequest) -> None:
-    logging.info('--- START: Analiza ---')
+    logging.info('START: Analiza')
     
     connect_str = os.environ["AzureWebJobsStorage"]
     blob_service_client = BlobServiceClient.from_connection_string(connect_str)
@@ -244,10 +244,10 @@ def DailyAnalysis(myTimer: func.TimerRequest) -> None:
     else:
         logging.info("Brak danych do wykresów. Uruchom Generator.")
     
-    logging.info("--- KONIEC ANALIZY ---")
+    logging.info("Koniec analizy")
 
 
-# --- FUNKCJE SAVE/SEND ---
+# Zapis i wysyłka
 
 def save_plot_to_blob_and_memory(fig, filename, blob_service, container):
     img_data = io.BytesIO()
@@ -299,15 +299,15 @@ def send_email_with_charts(attachments):
             s.ehlo()
             s.login(EMAIL_CONFIG["SENDER"], EMAIL_CONFIG["PASSWORD"])
             s.send_message(msg)
-        logging.info(f"--- EMAIL WYSŁANY na {EMAIL_CONFIG['RECEIVER']} ---")
+        logging.info(f"Email wysłany na {EMAIL_CONFIG['RECEIVER']}")
         return True
     except Exception as e:
         logging.error(f"Błąd przy wysyłaniu maila: {e}")
         return False
 
-# --- LOGIKA WYKRESÓW ---
+# Wykresy
 def generate_prolonged_stays_chart(conn, ward_name, blob_service, container):
-    """Generuje 3 wykresy dla przedłużonych pobytów (skala problemu, czas, demografia)"""
+    """3 wykresy dla przedłużonych pobytów"""
     query = """SELECT h.icd10, h.admission_date, h.discharge_date, p.birth_date 
                FROM hospitalizations h 
                JOIN patients p ON h.patient_id = p.id 
@@ -359,12 +359,12 @@ def generate_prolonged_stays_chart(conn, ward_name, blob_service, container):
     fig, axes = plt.subplots(3, 1, figsize=(14, 18), constrained_layout=True)
     sns.set_style("whitegrid")
     
-    fig.suptitle(f'ANALIZA PRZEDŁUŻONYCH POBYTÓW - {ward_name}',
+    fig.suptitle(f'Przedłużone pobyty - {ward_name}',
                  fontsize=16, fontweight='bold', color='#2c3e50')
     
     # Wykres 1: Skala problemu
     sns.barplot(ax=axes[0], x='Liczba', y='icd10', data=agg, color='#3498db')
-    axes[0].set_title('1. SKALA PROBLEMU: Liczba pacjentów przedłużonych', fontsize=12, fontweight='bold', loc='left')
+    axes[0].set_title('1. Liczba przypadków', fontsize=12, fontweight='bold', loc='left')
     axes[0].set_xlabel('Liczba pacjentów')
     
     for i, row in agg.iterrows():
@@ -384,7 +384,7 @@ def generate_prolonged_stays_chart(conn, ward_name, blob_service, container):
     
     sns.barplot(ax=axes[1], x='Dni', y='icd10', hue='Typ_Czasu', data=df_czas,
                 palette={'Norma (90%)': '#2ecc71', 'Faktyczny': '#e74c3c'})
-    axes[1].set_title('2. ANALIZA CZASU: Zielony=Norma, Czerwony=Przedłużony', fontsize=12, fontweight='bold', loc='left')
+    axes[1].set_title('2. Porównanie czasu (zielony=norma, czerwony=faktyczny)', fontsize=12, fontweight='bold', loc='left')
     axes[1].set_xlabel('Dni')
     axes[1].legend(loc='lower right', fontsize=9)
     
@@ -392,7 +392,7 @@ def generate_prolonged_stays_chart(conn, ward_name, blob_service, container):
     sns.barplot(ax=axes[2], x='Wiek_Srednia', y='icd10', data=agg, color='#9b59b6')
     axes[2].errorbar(x=agg['Wiek_Srednia'], y=range(len(agg)), xerr=agg['Wiek_SD'],
                      fmt='none', c='black', capsize=5, linewidth=2)
-    axes[2].set_title('3. DEMOGRAFIA: Średnia wieku ± Odch.Standardowe', fontsize=12, fontweight='bold', loc='left')
+    axes[2].set_title('3. Wiek pacjentów (średnia ± odchylenie)', fontsize=12, fontweight='bold', loc='left')
     axes[2].set_xlabel('Wiek (lata)')
     
     for i, row in agg.iterrows():
@@ -402,7 +402,7 @@ def generate_prolonged_stays_chart(conn, ward_name, blob_service, container):
     return save_plot_to_blob_and_memory(fig, f"Raport_Przedluzone_{ward_name.replace(' ', '_')}.png", blob_service, container)
 
 def generate_readmissions_chart(conn, ward_name, blob_service, container):
-    """Generuje 2 wykresy dla powrotów < 14 dni"""
+    """2 wykresy dla powrotów poniżej 14 dni"""
     query = """SELECT readmission_icd10, age FROM rehospitalizations 
                WHERE days_between <= 14 AND prev_ward = ?"""
     df = pd.read_sql(query, conn, params=(ward_name,))
@@ -420,12 +420,12 @@ def generate_readmissions_chart(conn, ward_name, blob_service, container):
     fig, axes = plt.subplots(2, 1, figsize=(12, 11), constrained_layout=True)
     sns.set_style("whitegrid")
     
-    fig.suptitle(f'ANALIZA POWROTÓW (< 14 DNI) - {ward_name}',
+    fig.suptitle(f'Powroty w ciągu 14 dni - {ward_name}',
                  fontsize=16, fontweight='bold', color='#c0392b')
     
     # Wykres 1: Liczba powrotów
     sns.barplot(data=stats, x='Liczba', y='icd10', ax=axes[0], palette='Reds_r')
-    axes[0].set_title('1. Top przyczyny powrotów (liczba pacjentów)', fontsize=12, fontweight='bold')
+    axes[0].set_title('1. Częste przyczyny powrotów', fontsize=12, fontweight='bold')
     axes[0].set_xlabel('Liczba pacjentów')
     
     for i, row in stats.iterrows():
@@ -435,7 +435,7 @@ def generate_readmissions_chart(conn, ward_name, blob_service, container):
     sns.barplot(data=stats, x='Wiek_Srednia', y='icd10', ax=axes[1], color='#3498db')
     axes[1].errorbar(x=stats['Wiek_Srednia'], y=range(len(stats)), xerr=stats['Wiek_SD'],
                      fmt='none', ecolor='black', capsize=5, elinewidth=2)
-    axes[1].set_title('2. Profil wiekowy (+/- Odchylenie Standardowe)', fontsize=12, fontweight='bold')
+    axes[1].set_title('2. Wiek pacjentów', fontsize=12, fontweight='bold')
     axes[1].set_xlabel('Wiek (lata)')
     
     max_x = (stats['Wiek_Srednia'] + stats['Wiek_SD']).max()
